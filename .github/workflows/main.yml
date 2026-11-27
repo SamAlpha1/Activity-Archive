@@ -1,38 +1,35 @@
-name: Automated Commit
+name: Archive Integrity
 
 on:
+  push:
+  pull_request:
   schedule:
-    - cron: '0 */12 * * *'  
+    - cron: "17 6 * * 1"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-
-    - name: Set up Git
-      run: |
-        git config --global user.email "jelvehsaz@gmail.com"
-        git config --global user.name "S@m88705626"
-
-    - name: Select Random Sticker
-      id: random_sticker
-      run: |
-        LINES=$(wc -l < stickers.txt)
-        RAND=$(( ( RANDOM % LINES ) + 1 ))
-        STICKER=$(sed -n "${RAND}p" stickers.txt)
-        echo "STICKER=$STICKER" >> $GITHUB_ENV
-
-    - name: Pull latest changes
-      run: |
-        git pull origin main --rebase
-
-    - name: Make a commit
-      run: |
-        echo "Commit made at $(date) with sticker: ${{ env.STICKER }}" >> commit-log.txt
-        git add commit-log.txt
-        git commit -m "For You: ${{ env.STICKER }}"
-        git push https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate archive inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in commit-log.txt stickers.txt; do
+            test -s "$file" || { echo "$file is missing or empty"; exit 1; }
+            if ! tail -c 1 "$file" | od -An -t x1 | grep -q '0a'; then
+              echo "$file must end with a newline"
+              exit 1
+            fi
+          done
+          if grep -n $'\r' commit-log.txt stickers.txt; then
+            echo "Unexpected CR characters found"
+            exit 1
+          fi
+          printf 'Archive integrity OK: %s log lines, %s sticker lines\n' \
+            "$(wc -l < commit-log.txt)" "$(wc -l < stickers.txt)"
